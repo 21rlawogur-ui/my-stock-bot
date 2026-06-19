@@ -14,16 +14,11 @@ import os
 st.set_page_config(page_title="나만의 주식 비서", layout="wide")
 st.markdown("<div id='top_anchor'></div>", unsafe_allow_html=True)
 
-# ⭐️ [핵심 패치] 네이버 및 야후 차단 방지용 일반 브라우저 위장 신분증
-STANDARD_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+# 한국 주식 수집용 브라우저 위장 헤더
+NAVER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Referer": "https://finance.naver.com/"
 }
-NAVER_HEADERS = STANDARD_HEADERS.copy()
-NAVER_HEADERS["Referer"] = "https://finance.naver.com/"
-
-# ⭐️ 야후 파이낸스 전용 로봇 우회 세션 생성
-yf_session = requests.Session()
-yf_session.headers.update(STANDARD_HEADERS)
 
 # 💾 영구 저장을 위한 로컬 JSON 파일 관리 함수
 PORTFOLIO_FILE = "my_portfolio.json"
@@ -91,19 +86,31 @@ def get_korea_live_data(code_or_index):
         st.session_state.error_log = f"❌ 국내 갱신 실패 ({code_or_index}): {str(e)}"
         return st.session_state.shadow_cache.get(code_or_index, (0.0, 0.0))
 
+# ⭐️ [핵심 패치] 야후 서버 클라우드 차단 우회를 위한 fast_info 이중 엔진
 @st.cache_data(ttl=30)
 def get_global_live_data(ticker):
     try:
-        stock = yf.Ticker(ticker, session=yf_session)
-        hist = stock.history(period="2d")
-        if not hist.empty and len(hist) >= 1:
-            cur = hist['Close'].iloc[-1]
-            change = 0.0
-            if len(hist) >= 2:
-                change = ((cur - hist['Close'].iloc[-2]) / hist['Close'].iloc[-2]) * 100
+        stock = yf.Ticker(ticker)
+        
+        # 1순위 우회 엔진: 차단 확률이 극히 낮은 fast_info 접근법
+        if hasattr(stock, 'fast_info'):
+            cur = float(stock.fast_info.last_price)
+            prev = float(stock.fast_info.previous_close)
+            if prev > 0:
+                change = ((cur - prev) / prev) * 100
+                st.session_state.shadow_cache[ticker] = (cur, change)
+                return cur, change
+
+        # 2순위 백업 엔진: 휴일/주말 차이 극복을 위해 데이터를 5일치로 넉넉하게 스캔
+        hist = stock.history(period="5d")
+        if not hist.empty and len(hist) >= 2:
+            cur = float(hist['Close'].iloc[-1])
+            prev = float(hist['Close'].iloc[-2])
+            change = ((cur - prev) / prev) * 100
             st.session_state.shadow_cache[ticker] = (cur, change)
             return cur, change
-        raise ValueError("yfinance 응답 없음")
+            
+        raise ValueError("yfinance 데이터를 가져올 수 없습니다.")
     except Exception as e:
         st.session_state.error_log = f"❌ 해외 갱신 실패 ({ticker}): {str(e)}"
         return st.session_state.shadow_cache.get(ticker, (0.0, 0.0))
@@ -112,9 +119,13 @@ def get_global_live_data(ticker):
 def get_heavy_market_cap(ticker):
     if ticker in ["KOSPI", "KOSDAQ", "^GSPC", "^IXIC", "^DJI"]: return 1
     try: 
-        stock = yf.Ticker(ticker, session=yf_session)
-        return stock.info.get('marketCap', 1)
-    except: return 1
+        stock = yf.Ticker(ticker)
+        return float(stock.fast_info.market_cap)
+    except: 
+        try:
+            return float(stock.info.get('marketCap', 1))
+        except:
+            return 1
 
 # --- 📰 구글 실시간 뉴스 RSS 수집 엔진 ---
 @st.cache_data(ttl=1800) 
