@@ -14,10 +14,17 @@ import os
 st.set_page_config(page_title="나만의 주식 비서", layout="wide")
 st.markdown("<div id='top_anchor'></div>", unsafe_allow_html=True)
 
-NAVER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Referer": "https://finance.naver.com/"
+# ⭐️ [핵심 패치] 네이버 및 야후 차단 방지용 일반 브라우저 위장 신분증
+STANDARD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 }
+NAVER_HEADERS = STANDARD_HEADERS.copy()
+NAVER_HEADERS["Referer"] = "https://finance.naver.com/"
+
+# ⭐️ 야후 파이낸스 전용 로봇 우회 세션 생성
+yf_session = requests.Session()
+yf_session.headers.update(STANDARD_HEADERS)
+
 
 # 💾 영구 저장을 위한 로컬 JSON 파일 관리 함수
 PORTFOLIO_FILE = "my_portfolio.json"
@@ -88,7 +95,8 @@ def get_korea_live_data(code_or_index):
 @st.cache_data(ttl=30)
 def get_global_live_data(ticker):
     try:
-        stock = yf.Ticker(ticker)
+        # ⭐️ 클라우드 차단 방지를 위해 위장된 세션(yf_session)으로 야후에 접근합니다.
+        stock = yf.Ticker(ticker, session=yf_session)
         hist = stock.history(period="2d")
         if not hist.empty and len(hist) >= 1:
             cur = hist['Close'].iloc[-1]
@@ -105,7 +113,9 @@ def get_global_live_data(ticker):
 @st.cache_data(ttl=86400)
 def get_heavy_market_cap(ticker):
     if ticker in ["KOSPI", "KOSDAQ", "^GSPC", "^IXIC", "^DJI"]: return 1
-    try: return yf.Ticker(ticker).info.get('marketCap', 1)
+    try: 
+        stock = yf.Ticker(ticker, session=yf_session) # 여기도 세션 적용
+        return stock.info.get('marketCap', 1)
     except: return 1
 
 # --- 📰 구글 실시간 뉴스 RSS 수집 엔진 ---
@@ -328,7 +338,6 @@ with left_view:
 
     st.divider()
     
-    # ⭐️ [업데이트] 글로벌 시장 종합 히트맵 (미국 다우존스 완벽 추가 완료)
     st.subheader("🗺️ 글로벌 시장 종합 히트맵")
     index_map = {
         "🇰🇷 1. 코스피 (KOSPI)": {"engine": "KR", "code": "KOSPI", "display_unit": "pt"},
@@ -393,26 +402,4 @@ with right_view:
     if chat_input := st.chat_input("AI 주식 비서에게 실시간 뉴스에 대해 질문해 보세요..."):
         with st.chat_message("user"):
             st.markdown(chat_input)
-        st.session_state.chat_history.append({"role": "user", "content": chat_input})
-        
-        with st.chat_message("assistant"):
-            with st.spinner("컨텍스트 파악 및 답변 빌드 중..."):
-                ai_answer = ask_gemini_ai(chat_input, all_news_context)
-                st.markdown(ai_answer)
-        st.session_state.chat_history.append({"role": "assistant", "content": ai_answer})
-
-st.markdown("""
-    <style>
-    .top-btn { position: fixed; bottom: 20px; right: 20px; background-color: #ff4b4b; color: white !important; padding: 10px 15px; border-radius: 5px; text-decoration: none; font-weight: bold; box-shadow: 2px 2px 5px rgba(0,0,0,0.3); z-index: 999999; }
-    .top-btn:hover { background-color: #ff3333; }
-    </style>
-    <a href="#top_anchor" class="top-btn">▲ TOP</a>
-""", unsafe_allow_html=True)
-
-# --- [7] ⏱️ 초정밀 백엔드 클록 루프 ---
-if auto_refresh:
-    try:
-        time.sleep(refresh_rate)
-        st.rerun()
-    except Exception:
-        pass
+        st.session_state.chat_history.append({"role": "
