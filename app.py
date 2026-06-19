@@ -10,15 +10,48 @@ import xml.etree.ElementTree as ET
 import json
 import os
 
+# --- [0] 보안 설정 (여기에 원하는 비밀번호를 설정하세요!) ---
+APP_PASSWORD = "1973" 
+
 # --- [1] 앱 전체 설정 및 초기화 ---
 st.set_page_config(page_title="나만의 주식 비서", layout="wide")
 st.markdown("<div id='top_anchor'></div>", unsafe_allow_html=True)
+
+# 🔐 로그인 세션 상태 확인
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+# 🚫 로그인 화면 분기 처리
+if not st.session_state.logged_in:
+    st.title("🔒 나만의 주식 비서 로그인")
+    st.write("이 앱은 인가된 사용자만 접근할 수 있습니다.")
+    
+    pwd_input = st.text_input("비밀번호를 입력하세요", type="password")
+    if st.button("접속하기", use_container_width=True):
+        if pwd_input == APP_PASSWORD:
+            st.session_state.logged_in = True
+            st.rerun() # 로그인 성공 시 메인 화면으로 새로고침
+        else:
+            st.error("❌ 비밀번호가 틀렸습니다!")
+    
+    # 여기서 코드 실행을 멈추고 밑의 메인 앱을 보여주지 않음
+    st.stop() 
+
+
+# ==========================================
+# 🟢 여기서부터는 로그인 성공 시 보여지는 진짜 메인 앱입니다 🟢
+# ==========================================
 
 # 한국 주식 수집용 브라우저 위장 헤더
 NAVER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Referer": "https://finance.naver.com/"
 }
+
+# ⭐️ 야후 파이낸스 전용 로봇 우회 세션 생성
+STANDARD_HEADERS = {"User-Agent": "Mozilla/5.0"}
+yf_session = requests.Session()
+yf_session.headers.update(STANDARD_HEADERS)
 
 # 💾 영구 저장을 위한 로컬 JSON 파일 관리 함수
 PORTFOLIO_FILE = "my_portfolio.json"
@@ -86,13 +119,10 @@ def get_korea_live_data(code_or_index):
         st.session_state.error_log = f"❌ 국내 갱신 실패 ({code_or_index}): {str(e)}"
         return st.session_state.shadow_cache.get(code_or_index, (0.0, 0.0))
 
-# ⭐️ [핵심 패치] 야후 서버 클라우드 차단 우회를 위한 fast_info 이중 엔진
 @st.cache_data(ttl=30)
 def get_global_live_data(ticker):
     try:
-        stock = yf.Ticker(ticker)
-        
-        # 1순위 우회 엔진: 차단 확률이 극히 낮은 fast_info 접근법
+        stock = yf.Ticker(ticker, session=yf_session)
         if hasattr(stock, 'fast_info'):
             cur = float(stock.fast_info.last_price)
             prev = float(stock.fast_info.previous_close)
@@ -101,7 +131,6 @@ def get_global_live_data(ticker):
                 st.session_state.shadow_cache[ticker] = (cur, change)
                 return cur, change
 
-        # 2순위 백업 엔진: 휴일/주말 차이 극복을 위해 데이터를 5일치로 넉넉하게 스캔
         hist = stock.history(period="5d")
         if not hist.empty and len(hist) >= 2:
             cur = float(hist['Close'].iloc[-1])
@@ -119,7 +148,7 @@ def get_global_live_data(ticker):
 def get_heavy_market_cap(ticker):
     if ticker in ["KOSPI", "KOSDAQ", "^GSPC", "^IXIC", "^DJI"]: return 1
     try: 
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(ticker, session=yf_session)
         return float(stock.fast_info.market_cap)
     except: 
         try:
@@ -200,6 +229,9 @@ with title_col:
 
 with btn_col:
     st.write(""); st.write("")
+    if st.button("🚪 로그아웃", key="btn_logout", use_container_width=True):
+        st.session_state.logged_in = False
+        st.rerun()
     if st.button("🗂️ 지수 모두 접기", key="global_collapse_btn", use_container_width=True):
         st.session_state.collapse_key += 1
         st.rerun()
