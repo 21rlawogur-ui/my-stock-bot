@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 import json
 import os
 
-# --- [0] 보안 설정 (여기에 원하는 비밀번호를 설정하세요!) ---
+# --- [0] 보안 설정 (여기에 원하는 앱 접속 비밀번호를 설정하세요!) ---
 APP_PASSWORD = "1973" 
 
 # --- [1] 앱 전체 설정 및 초기화 ---
@@ -30,11 +30,10 @@ if not st.session_state.logged_in:
     if st.button("접속하기", use_container_width=True):
         if pwd_input == APP_PASSWORD:
             st.session_state.logged_in = True
-            st.rerun() # 로그인 성공 시 메인 화면으로 새로고침
+            st.rerun() 
         else:
             st.error("❌ 비밀번호가 틀렸습니다!")
     
-    # 여기서 코드 실행을 멈추고 밑의 메인 앱을 보여주지 않음
     st.stop() 
 
 
@@ -53,33 +52,45 @@ STANDARD_HEADERS = {"User-Agent": "Mozilla/5.0"}
 yf_session = requests.Session()
 yf_session.headers.update(STANDARD_HEADERS)
 
-# 💾 영구 저장을 위한 로컬 JSON 파일 관리 함수
-PORTFOLIO_FILE = "my_portfolio.json"
+# 💾 포트폴리오와 API 키를 함께 저장하는 통합 데이터 관리
+DATA_FILE = "my_app_data.json"
 
-def load_portfolio():
-    if os.path.exists(PORTFOLIO_FILE):
+def load_data():
+    if os.path.exists(DATA_FILE):
         try:
-            with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return {"portfolio": data, "api_key": ""}
+                return data
         except:
             pass
-    return [
-        {"name": "삼성전자", "ticker": "005930", "is_kr": True, "buy_price": 72000, "count": 10},
-        {"name": "애플", "ticker": "AAPL", "is_kr": False, "buy_price": 240.0, "count": 5},
-        {"name": "테슬라", "ticker": "TSLA", "is_kr": False, "buy_price": 380.0, "count": 2}
-    ]
+    return {
+        "portfolio": [
+            {"name": "삼성전자", "ticker": "005930", "is_kr": True, "buy_price": 72000, "count": 10},
+            {"name": "애플", "ticker": "AAPL", "is_kr": False, "buy_price": 240.0, "count": 5},
+            {"name": "테슬라", "ticker": "TSLA", "is_kr": False, "buy_price": 380.0, "count": 2}
+        ],
+        "api_key": ""
+    }
 
-def save_portfolio():
-    with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
-        json.dump(st.session_state.portfolio, f, ensure_ascii=False, indent=4)
+def save_data():
+    data = {
+        "portfolio": st.session_state.portfolio,
+        "api_key": st.session_state.gemini_api_key
+    }
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 세션 상태 초기화
-if 'portfolio' not in st.session_state: st.session_state.portfolio = load_portfolio()
+# 세션 상태 및 통합 데이터 로딩
+app_data = load_data()
+if 'portfolio' not in st.session_state: st.session_state.portfolio = app_data["portfolio"]
+if 'gemini_api_key' not in st.session_state: st.session_state.gemini_api_key = app_data["api_key"]
+
 if 'shadow_cache' not in st.session_state: st.session_state.shadow_cache = {}
 if 'error_log' not in st.session_state: st.session_state.error_log = "정상 가동 중"
 if 'collapse_key' not in st.session_state: st.session_state.collapse_key = 0
 if 'search_results' not in st.session_state: st.session_state.search_results = []
-if 'gemini_api_key' not in st.session_state: st.session_state.gemini_api_key = ""
 if 'chat_history' not in st.session_state: st.session_state.chat_history = []
 
 SEARCH_DB = [
@@ -192,7 +203,7 @@ def fetch_stock_news(ticker, name, is_kr):
 def ask_gemini_ai(prompt, context_news=""):
     api_key = st.session_state.get("gemini_api_key", "")
     if not api_key:
-        return "⚠️ 사이드바에 **Gemini API Key**를 입력하고 **[🔑 API 키 적용]** 버튼을 눌러주세요!"
+        return "⚠️ 사이드바에 **Gemini API Key**를 입력하고 **[🔑 API 키 적용 및 저장]** 버튼을 눌러주세요!"
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
@@ -241,12 +252,18 @@ st.divider()
 # --- [4] 사이드바 (포트폴리오 관리, API 키 제어, 검색창) ---
 st.sidebar.header("⚙️ 시스템 설정 및 관리")
 
-gemini_key_input = st.sidebar.text_input("🤖 Gemini API Key 입력", type="password", value=st.session_state.get("gemini_api_key", ""))
-if st.sidebar.button("🔑 API 키 적용", use_container_width=True):
+# ⭐️ [업데이트] 초보자를 위한 Gemini API 키 발급 바로가기 버튼 추가
+st.sidebar.markdown("### 🤖 AI 비서 활성화")
+st.sidebar.link_button("🔗 Gemini API 키 무료 발급받기", "https://aistudio.google.com/app/apikey", use_container_width=True)
+
+gemini_key_input = st.sidebar.text_input("발급받은 API Key 입력", type="password", value=st.session_state.get("gemini_api_key", ""), help="한 번 입력하면 안전하게 자동 저장됩니다.")
+if st.sidebar.button("🔑 API 키 적용 및 저장", use_container_width=True):
     st.session_state.gemini_api_key = gemini_key_input
-    if gemini_key_input: st.sidebar.success("API 키가 성공적으로 적용되었습니다! 🎉")
+    save_data() # API 키를 파일에 저장합니다.
+    if gemini_key_input: st.sidebar.success("API 키가 성공적으로 저장되었습니다! 🎉")
     else: st.sidebar.warning("키가 비어있습니다. 다시 확인해 주세요.")
 
+st.sidebar.markdown("---")
 st.sidebar.subheader("🔄 실시간 동기화 제어")
 auto_refresh = st.sidebar.toggle("⏱️ 자동 실시간 갱신 활성화", value=False)
 refresh_rate = st.sidebar.slider("갱신 주기 설정 (초)", 5, 60, 10, step=5)
@@ -306,7 +323,7 @@ with st.sidebar.expander("🔍 주식 검색 및 추가 (해외 티커 지원)",
                     st.session_state.portfolio.append({
                         "name": r['name'].split(" (")[0], "ticker": r['ticker'], "is_kr": r['is_kr'], "buy_price": cur if cur > 0 else 100.0, "count": 1.0 
                     })
-                    save_portfolio() 
+                    save_data() 
                     st.toast(f"{r['name']} 자산 리스트 편입 및 저장 완료!", icon="✅")
                     st.session_state.search_results = [] 
                     st.rerun()
@@ -339,7 +356,7 @@ for i, item in enumerate(st.session_state.portfolio):
         if col_save.button("✅ 완료", key=f"save_{i}"):
             st.session_state.portfolio[i]['buy_price'] = edited_buy
             st.session_state.portfolio[i]['count'] = edited_count
-            save_portfolio() 
+            save_data() 
             st.session_state[edit_state_key] = False 
             st.rerun()
         if col_del.button("❌ 삭제", key=f"del_{i}"):
@@ -348,7 +365,7 @@ for i, item in enumerate(st.session_state.portfolio):
 
 if to_delete is not None:
     st.session_state.portfolio.pop(to_delete)
-    save_portfolio() 
+    save_data() 
     st.rerun()
 
 
