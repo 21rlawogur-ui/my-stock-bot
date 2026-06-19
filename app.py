@@ -11,7 +11,7 @@ import json
 import os
 
 # --- [0] 보안 설정 (여기에 원하는 앱 접속 비밀번호를 설정하세요!) ---
-APP_PASSWORD = "1973" 
+APP_PASSWORD = "1973$$" 
 
 # --- [1] 앱 전체 설정 및 초기화 ---
 st.set_page_config(page_title="나만의 주식 비서", layout="wide")
